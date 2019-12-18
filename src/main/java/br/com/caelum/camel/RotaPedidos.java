@@ -5,6 +5,7 @@ import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.component.http4.HttpMethods;
 import org.apache.camel.impl.DefaultCamelContext;
+import org.apache.http.entity.ContentType;
 
 public class RotaPedidos {
 
@@ -43,8 +44,10 @@ public class RotaPedidos {
 
                 from("direct:soap").
                     routeId("rota-soap").
-                    setBody(constant("<envelope>teste</envelope>")).
-                to("mock:soap");
+                    to("xslt:pedido-para-soap.xslt").
+                    log("Resultado do Template: ${body}").
+                    setHeader(Exchange.CONTENT_TYPE, constant(ContentType.TEXT_XML.getMimeType())).
+                to("http4://localhost:8080/webservices/financeiro");
             }
         };
 
