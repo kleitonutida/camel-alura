@@ -1,27 +1,50 @@
 package br.com.caelum.camel;
 
+import org.apache.activemq.camel.component.ActiveMQComponent;
 import org.apache.camel.CamelContext;
 import org.apache.camel.Exchange;
+import org.apache.camel.Processor;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.component.http4.HttpMethods;
 import org.apache.camel.impl.DefaultCamelContext;
 import org.apache.http.entity.ContentType;
+import org.xml.sax.SAXParseException;
 
 public class RotaPedidos {
 
     public static void main(String[] args) throws Exception {
 
         CamelContext context = new DefaultCamelContext();
+        context.addComponent("activemq", ActiveMQComponent.activeMQComponent("tcp://localhost:61616"));
 
         RouteBuilder builder = new RouteBuilder() {
             @Override
             public void configure() throws Exception {
+
+//                onException(Exception.class).
+//                        handled(false).
+//                        to("file:error-parsing");
+
+//                errorHandler(deadLetterChannel("file:erro"). // enviar o erro para um arquivo, o tratamento do deadLetterChannel funciona como uma rota
+                errorHandler(deadLetterChannel("activemq:queue:pedidos.DLQ"). // enviar o erro para uma fila
+                        logExhaustedMessageHistory(true). // exibir a stacktrace com erro
+                        maximumRedeliveries(3). // quantidade maxima de tentativas
+                        redeliveryDelay(2000). // tempo de delay para a re-tentativa
+                        onRedelivery(exchange -> { // implementacao do processor para tratativa em cada tentativa
+                            int counter = (int) exchange.getIn().getHeader(Exchange.REDELIVERY_COUNTER);
+                            int max = (int) exchange.getIn().getHeader(Exchange.REDELIVERY_MAX_COUNTER);
+                            System.out.println("Redelivery " + counter + "/" + max);
+                        }));
+
                 // lendo arquivos e delegando para outras rotas
-                from("file:pedidos?delay=5s&noop=true").
+//                from("file:pedidos?delay=5s&noop=true").
+                // recebendo mensagem de uma fila
+                from("activemq:queue:pedidos").
                 routeId("rota-pedidos").
-                multicast().
-                    to("direct:soap"). // delegando
-                    to("direct:http"); // delegando
+                to("validator:pedido.xsd").
+                    multicast().
+                        to("direct:soap"). // delegando
+                        to("direct:http"); // delegando
 
                 from("direct:http").
                     routeId("rota-http").
@@ -55,5 +78,6 @@ public class RotaPedidos {
 
         context.start();
         Thread.sleep(20000);
+        context.stop();
     }
 }
